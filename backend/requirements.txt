@@ -1,0 +1,4 @@
+
+python-dotenv==1.0.1
+pymongo==4.9.2
+pubnub==10.5.0
