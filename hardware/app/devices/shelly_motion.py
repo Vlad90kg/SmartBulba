@@ -1,18 +1,22 @@
+import time
 from bleak import BleakScanner
-from hardware.app.config import SHELLY_MAC
-from hardware.app.rules.motion_rule import register_motion
+from hardware.app.config import SHELLY_NAME
+
+last_motion_ts = 0
+
+
+def ble_callback(device, adv):
+    global last_motion_ts
+    if device.name == SHELLY_NAME:
+        last_motion_ts = time.time()
+        print(f"🟢 MOTION from {device.address}")
 
 
 class ShellyMotion:
     def __init__(self):
-        self.scanner = None
-
-    def _callback(self, device, adv):
-        if device.address.upper() == SHELLY_MAC:
-            register_motion()
+        self.scanner = BleakScanner(ble_callback)
 
     async def start(self):
-        self.scanner = BleakScanner(self._callback)
         await self.scanner.start()
 
     async def stop(self):
