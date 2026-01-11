@@ -1,4 +1,8 @@
+import threading
+
 from flask import Flask, render_template, request, jsonify
+
+from app.pubnub.activity_listener import start_activity_listener
 from backend.app.controllers.light_controller import LightController
 from dotenv import load_dotenv
 
@@ -18,4 +22,5 @@ def control():
     return jsonify({"status": "error"}), 500
 
 if __name__ == "__main__":
+    threading.Thread(target=start_activity_listener, daemon=True).start()
     app.run(host='0.0.0.0', port=5000)

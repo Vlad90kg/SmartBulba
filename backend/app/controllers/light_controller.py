@@ -18,6 +18,6 @@ class LightController:
     def process_command(self, data):
         self.model.log_event(data)
 
-        envelope = self.pubnub.publish().channel("light_control").message(data).sync()
+        envelope = self.pubnub.publish().channel(os.getenv("PUBNUB_CONTROL_CHANNEL")).message(data).sync()
 
         return not envelope.status.is_error()
