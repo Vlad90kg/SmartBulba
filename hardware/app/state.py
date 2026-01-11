@@ -5,3 +5,4 @@ class SystemState:
         self.brightness = "medium"
 
 state = SystemState()
+
