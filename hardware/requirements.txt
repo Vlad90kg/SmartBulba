@@ -1,0 +1,6 @@
+bleak==2.1.1
+python-kasa==0.10.2
+python-dotenv==1.2.1
+pubnub==10.5.0
+
+
