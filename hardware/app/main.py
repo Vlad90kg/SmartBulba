@@ -72,19 +72,28 @@ async def main():
     global last_motion_ts, last_packet_time, light_on, bulb
 
     pnconfig = PNConfiguration()
-    pnconfig.publish_key = os.getenv("PUBNUB_PUB_KEY")
-    pnconfig.subscribe_key = os.getenv("PUBNUB_SUB_KEY")
+    pnconfig.publish_key = os.getenv("PN_PUB_KEY")
+    pnconfig.subscribe_key = os.getenv("PN_SUB_KEY")
+    pnconfig.secret_key = os.getenv("PN_SEC_KEY")
     pnconfig.user_id = "raspberry_pi_main"
+    pnconfig.secure = True
 
     pub_instance = PubNubAsyncio(pnconfig)
     pub_instance.add_listener(ControlListener())
+
     pub_instance.subscribe().channels(CONTROL_CHANNEL).execute()
 
     print("Status: Discovering bulb...")
     bulb = await discover_bulb()
+
+    activity_channel = os.getenv("PUBNUB_ACTIVITY_CHANNEL", "light_activity")
+    await pub_instance.publish().channel(activity_channel).message({
+        "status": "online",
+        "device": "raspberry_pi"
+    }).result()
+
     if bulb:
         print(f"Status: Bulb connected. Monitoring {TARGET_MAC}")
-
     while True:
         scanner = BleakScanner(ble_callback, scanning_mode="active")
         await scanner.start()
@@ -96,12 +105,20 @@ async def main():
                     if diff < MY_TIMEOUT:
                         if not light_on:
                             print(f"Action: Auto ON ({current_brightness}%)")
-                            if bulb: asyncio.create_task(bulb.on(current_brightness))
+                            if bulb:
+                                asyncio.create_task(bulb.on(current_brightness))
+                                asyncio.create_task(pub_instance.publish().channel(activity_channel).message({
+                                    "power": True, "mode": "motion", "brightness": current_brightness
+                                }).result())
                             light_on = True
                     else:
                         if light_on:
                             print("Action: Auto OFF (Timeout)")
-                            if bulb: asyncio.create_task(bulb.off())
+                            if bulb:
+                                asyncio.create_task(bulb.off())
+                                asyncio.create_task(pub_instance.publish().channel(activity_channel).message({
+                                    "power": False, "mode": "motion"
+                                }).result())
                             light_on = False
                 await asyncio.sleep(1)
         except Exception as e:
