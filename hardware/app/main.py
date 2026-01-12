@@ -16,33 +16,42 @@ except ImportError as e:
 
 load_dotenv()
 
-TARGET_MAC = "B0:C7:DE:32:3E:74"
-MY_TIMEOUT = 120
+TARGET_MAC = os.getenv("SHELLY_MAC", "B0:C7:DE:32:3E:74")
+MY_TIMEOUT = int(os.getenv("MOTION_TIMEOUT", 30))
 CONTROL_CHANNEL = os.getenv("PUBNUB_CONTROL_CHANNEL", "light_control")
+
+BRIGHTNESS_MAP = {
+    "low": 30,
+    "medium": 60,
+    "high": 100
+}
 
 last_packet_time = time.time()
 last_motion_ts = 0
 light_on = False
 system_mode = "motion"
+current_brightness = 100
 bulb = None
 
 
 class ControlListener(SubscribeCallback):
     def message(self, pubnub, message):
-        global system_mode, light_on
+        global system_mode, light_on, current_brightness
         data = message.message
         print(f"Remote command received: {data}")
 
         system_mode = data.get("mode", "motion")
+        bright_key = data.get("brightness", "high")
+        current_brightness = BRIGHTNESS_MAP.get(bright_key, 100)
         power_cmd = data.get("power")
 
         if system_mode == "manual" and bulb:
             if power_cmd is True:
-                print("Manual mode: Setting light ON")
-                asyncio.create_task(bulb.on(100))
+                print(f"Manual mode: Set ON (Brightness: {current_brightness}%)")
+                asyncio.create_task(bulb.on(current_brightness))
                 light_on = True
-            elif power_cmd is False:
-                print("Manual mode: Setting light OFF")
+            else:
+                print("Manual mode: Set OFF")
                 asyncio.create_task(bulb.off())
                 light_on = False
 
@@ -63,12 +72,13 @@ async def main():
     global last_motion_ts, last_packet_time, light_on, bulb
 
     pnconfig = PNConfiguration()
-    pnconfig.subscribe_key = os.getenv("PN_SUB_KEY")
-    pnconfig.publish_key = os.getenv("PN_PUB_KEY")
+    pnconfig.publish_key = os.getenv("PUBNUB_PUB_KEY")
+    pnconfig.subscribe_key = os.getenv("PUBNUB_SUB_KEY")
     pnconfig.user_id = "raspberry_pi_main"
-    pubnub = PubNubAsyncio(pnconfig)
-    pubnub.add_listener(ControlListener())
-    pubnub.subscribe().channels(CONTROL_CHANNEL).execute()
+
+    pub_instance = PubNubAsyncio(pnconfig)
+    pub_instance.add_listener(ControlListener())
+    pub_instance.subscribe().channels(CONTROL_CHANNEL).execute()
 
     print("Status: Discovering bulb...")
     bulb = await discover_bulb()
@@ -81,26 +91,21 @@ async def main():
         try:
             for _ in range(30):
                 now = time.time()
-
                 if system_mode == "motion":
                     diff = now - last_motion_ts if last_motion_ts > 0 else 999999
                     if diff < MY_TIMEOUT:
                         if not light_on:
-                            print("Action: Motion-based light ON")
-                            if bulb: asyncio.create_task(bulb.on(100))
+                            print(f"Action: Auto ON ({current_brightness}%)")
+                            if bulb: asyncio.create_task(bulb.on(current_brightness))
                             light_on = True
                     else:
                         if light_on:
-                            print("Action: Motion-based light OFF (Timeout)")
+                            print("Action: Auto OFF (Timeout)")
                             if bulb: asyncio.create_task(bulb.off())
                             light_on = False
-
                 await asyncio.sleep(1)
-
-            if time.time() - last_packet_time > 60:
-                print(f"Status: Waiting for sensor data ({int(time.time() - last_packet_time)}s silence)")
         except Exception as e:
-            print(f"Error: Runtime exception: {e}")
+            print(f"Error: {e}")
         finally:
             await scanner.stop()
 
@@ -109,6 +114,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nStatus: Execution terminated by user")
-    except Exception as e:
-        print(f"Error: Critical failure: {e}")
+        print("\nStatus: Terminated")
