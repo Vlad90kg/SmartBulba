@@ -1,4 +1,7 @@
-
-python-dotenv==1.0.1
-pymongo==4.9.2
-pubnub==10.5.0
+flask
+pubnub==7.3.0
+pymongo[srv]
+python-dotenv
+bleak
+bleak-retry-connector
+python-kasa

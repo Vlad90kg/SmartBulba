@@ -1,0 +1,6 @@
+bleak==2.1.1
+Flask==3.1.2
+python-kasa==0.7.7
+pymongo==4.16.0
+python-dotenv==1.2.1
+pubnub==7.3.0
