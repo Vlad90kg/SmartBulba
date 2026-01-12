@@ -17,7 +17,6 @@ class LightController:
         self.model = ActivityModel()
 
     def process_command(self, data):
-        # Логируем в Mongo (пароль из MONGO_URI)
         try:
             self.model.log_event(data)
         except Exception as e:

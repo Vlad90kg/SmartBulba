@@ -6,7 +6,6 @@ import os
 
 class ActivityListener(SubscribeCallback):
     def message(self, pubnub, message):
-        # Это то, что прилетает от железки
         print(f"--- [PAM ACTIVE] ACTIVITY EVENT: {message.message} ---")
 
 
@@ -20,7 +19,6 @@ def start_activity_listener():
 
     pubnub = PubNub(config)
 
-    # ВАЖНО: Выдаем права на каналы, чтобы PAM не блокировал трафик
     activity_ch = os.getenv("PUBNUB_ACTIVITY_CHANNEL")
     control_ch = os.getenv("PUBNUB_CONTROL_CHANNEL")
 
