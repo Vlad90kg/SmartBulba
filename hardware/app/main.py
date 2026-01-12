@@ -1,99 +1,89 @@
-import time
 import asyncio
-from collections import deque
-from bleak import BleakScanner
-from pubnub.pubnub import PubNub
-from pubnub.pnconfiguration import PNConfiguration
-from dotenv import load_dotenv
+import time
 import os
-import statistics
+import sys
+from bleak import BleakScanner
+from dotenv import load_dotenv
 
-# ---------- CONFIG ----------
+try:
+    from hardware.app.devices.tapo_bulb import discover_bulb
+except ImportError as e:
+    print(f"Import Error: {e}")
+    sys.exit(1)
+
 load_dotenv()
 
-SHELLY_NAME = os.getenv("SHELLY_NAME", "Shelly")
-CHANNEL = os.getenv("PUBNUB_ACTIVITY_CHANNEL")
+TARGET_MAC = "B0:C7:DE:32:3E:74"
+MY_TIMEOUT = 120
+last_packet_time = time.time()
+last_motion_ts = 0
+light_on = False
 
-WINDOW_SECONDS = 5.0
-ACTIVE_THRESHOLD = 0.7
-IDLE_THRESHOLD = 0.3
 
-# ---------- PUBNUB ----------
-pnconfig = PNConfiguration()
-pnconfig.publish_key = os.getenv("PUBNUB_PUB_KEY")
-pnconfig.subscribe_key = os.getenv("PUBNUB_SUB_KEY")
-pnconfig.uuid = os.getenv("PUBNUB_UUID", "edge-agent")
-pubnub = PubNub(pnconfig)
-
-# ---------- STATE ----------
-events = deque()  # (timestamp, rssi)
-current_state = "EMPTY"
-
-# ---------- BLE CALLBACK ----------
 def ble_callback(device, adv):
-    if device.name and SHELLY_NAME in device.name:
-        now = time.time()
-        rssi = device.rssi
-        events.append((now, rssi))
+    global last_motion_ts, last_packet_time
+    if device.address.upper() == TARGET_MAC:
+        last_packet_time = time.time()
+        ts = time.strftime('%H:%M:%S')
 
-# ---------- ACTIVITY SCORE ----------
-def compute_activity():
-    now = time.time()
-    # cleanup old events
-    while events and now - events[0][0] > WINDOW_SECONDS:
-        events.popleft()
+        bthome_uuid = "0000fcd2-0000-1000-8000-00805f9b34fb"
+        data = adv.service_data.get(bthome_uuid)
 
-    if not events:
-        return 0.0
+        if data:
+            payload = data.hex()
+            if "2101" in payload:
+                last_motion_ts = time.time()
+                print(f" [{ts}] MOTION | RSSI: {adv.rssi}")
+            else:
+                print(f" [{ts}] KEEP-ALIVE | RSSI: {adv.rssi}")
 
-    packet_rate = len(events) / WINDOW_SECONDS
 
-    rssi_values = [r for _, r in events]
-    rssi_variance = statistics.pvariance(rssi_values) if len(rssi_values) > 1 else 0
-
-    rate_score = min(packet_rate / 6.0, 1.0)
-    rssi_score = min(rssi_variance / 20.0, 1.0)
-
-    return round((rate_score * 0.7 + rssi_score * 0.3), 2)
-
-# ---------- STATE MACHINE ----------
-def classify_state(score):
-    if score >= ACTIVE_THRESHOLD:
-        return "ACTIVE"
-    if score >= IDLE_THRESHOLD:
-        return "IDLE"
-    return "EMPTY"
-
-# ---------- MAIN LOOP ----------
 async def main():
-    global current_state
+    global last_motion_ts, last_packet_time, light_on
 
-    print("🔵 Starting BLE activity agent...")
-    scanner = BleakScanner(ble_callback)
-    await scanner.start()
+    print(" Discovering bulb...")
+    bulb = await discover_bulb()
+    if bulb:
+        print(f"✅ Bulb connected. Monitoring {TARGET_MAC}")
+    else:
+        print(" Bulb not found. Observation mode only.")
 
-    try:
-        while True:
-            score = compute_activity()
-            new_state = classify_state(score)
-            if new_state != current_state:
-                current_state = new_state
+    while True:
+        # Re-initializing scanner to prevent driver stalls
+        scanner = BleakScanner(ble_callback, scanning_mode="active")
+        await scanner.start()
 
-                payload = {
-                    "state": current_state,
-                    "activity_score": score,
-                    "timestamp": int(time.time())
-                }
+        try:
+            for _ in range(30):
+                now = time.time()
+                diff = now - last_motion_ts if last_motion_ts > 0 else 999999
 
-                pubnub.publish().channel(CHANNEL).message(payload).sync()
-                print("📡 Published:", payload)
+                if diff < MY_TIMEOUT:
+                    if not light_on:
+                        print("💡 LIGHT ON")
+                        if bulb: asyncio.create_task(bulb.on(100))
+                        light_on = True
+                else:
+                    if light_on:
+                        print("🌑 LIGHT OFF (Timeout)")
+                        if bulb: asyncio.create_task(bulb.off())
+                        light_on = False
 
-            await asyncio.sleep(1)
+                await asyncio.sleep(1)
 
-    finally:
-        await scanner.stop()
+            if time.time() - last_packet_time > 60:
+                print(f"⏳ Waiting for sensor... ({int(time.time() - last_packet_time)}s silence)")
+
+        except Exception as e:
+            print(f"💥 Runtime Error: {e}")
+        finally:
+            await scanner.stop()
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
-
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nTerminated.")
+    except Exception as e:
+        print(f" Critical Failure: {e}")
