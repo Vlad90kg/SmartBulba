@@ -2,8 +2,8 @@ import threading
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
 
-from backend.app.pubnub_manager.activity_listener import start_activity_listener
-from backend.app.controllers.light_controller import LightController
+from app.pubnub_manager.activity_listener import start_activity_listener
+from app.controllers.light_controller import LightController
 
 
 load_dotenv()
