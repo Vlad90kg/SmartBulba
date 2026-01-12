@@ -5,7 +5,7 @@ import os
 
 class ActivityListener(SubscribeCallback):
     def message(self, pubnub, message):
-        print("📥 ACTIVITY EVENT:", message.message)
+        print("ACTIVITY EVENT:", message.message)
 
 def start_activity_listener():
     config = PNConfiguration()
